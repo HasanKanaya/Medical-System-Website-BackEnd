@@ -6,11 +6,10 @@ const generateToken = (id, role) => {
   return jwt.sign({ id, role }, process.env.JWT_SECRET, { expiresIn: '30d' });
 };
 
-
-// تسجيل مستخدم جديد 
+// تسجيل مستخدم جديد
 exports.register = async (req, res) => {
   try {
-    const { fullName, email, phone, password, role, doctorDetails } = req.body;
+    const { fullName, email, phone, password, role, doctorDetails, gender } = req.body;
 
     // التحقق من البريد المكرر
     const existingUser = await User.findOne({ email });
@@ -26,12 +25,8 @@ exports.register = async (req, res) => {
       role: role || 'patient',
     };
 
-    // إضافة الهاتف فقط إذا وجد
-    if (phone) {
-      userData.phone = phone;
-    }
-
-    // إضافة تفاصيل الطبيب إذا كان الدكتور
+    if (phone) userData.phone = phone;
+    if (gender) userData.gender = gender;
     if (role === 'doctor' && doctorDetails) {
       userData.doctorDetails = doctorDetails;
     }
@@ -44,6 +39,9 @@ exports.register = async (req, res) => {
       email: user.email,
       phone: user.phone || null,
       role: user.role,
+      gender: user.gender || null,
+      address: user.address || '',
+      doctorDetails: user.doctorDetails,
       token: generateToken(user._id, user.role),
     });
   } catch (error) {
@@ -74,8 +72,11 @@ exports.login = async (req, res) => {
       _id: user._id,
       fullName: user.fullName,
       email: user.email,
-      phone: user.phone,
+      phone: user.phone || null,
       role: user.role,
+      gender: user.gender || null,
+      address: user.address || '',
+      doctorDetails: user.doctorDetails,
       token: generateToken(user._id, user.role),
     });
   } catch (error) {

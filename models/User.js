@@ -18,7 +18,7 @@ const userSchema = new mongoose.Schema(
     phone: {
       type: String,
       unique: true,
-      sparse: true,   
+      sparse: true,
       default: null,
     },
     password: {
@@ -36,14 +36,19 @@ const userSchema = new mongoose.Schema(
       default: '',
     },
     address: {
-  type: String,
-  default: '',
-},
+      type: String,
+      default: '',
+    },
+    gender: {
+      type: String,
+      enum: ['male', 'female'],
+      default: null,
+    },
     isActive: {
       type: Boolean,
       default: true,
     },
-    
+
     doctorDetails: {
       qualifications: { type: String },
       licenseNumber: { type: String },
@@ -52,12 +57,17 @@ const userSchema = new mongoose.Schema(
       documents: [{ type: String }],
       isVerified: { type: Boolean, default: false },
     },
+    assignedDoctor: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
   },
   { timestamps: true }
 );
 
 // تشفير كلمة المرور قبل حفظ المستخدم
-userSchema.pre('save', async function() {
+userSchema.pre('save', async function () {
   if (!this.isModified('password')) return;
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);

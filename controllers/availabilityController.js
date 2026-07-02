@@ -1,16 +1,18 @@
 const Availability = require('../models/Availability');
 
-// @desc    جلب إعدادات التوافر للطبيب الحالي
-// @route   GET /api/availability
-// @access  Private/Doctor
+// دالة مساعدة لتحويل اسم اليوم إلى رقم
+const dayNameToNumber = {
+  Sunday: 0, Monday: 1, Tuesday: 2, Wednesday: 3,
+  Thursday: 4, Friday: 5, Saturday: 6
+};
+
 const getAvailability = async (req, res) => {
   try {
     let availability = await Availability.findOne({ doctor: req.user.id });
     if (!availability) {
-      // إنشاء إعدادات افتراضية إذا لم توجد
       availability = await Availability.create({
         doctor: req.user.id,
-        workingDays: [1,2,3,4,5],
+        workingDays: [1, 2, 3, 4, 5],
         startTime: '09:00',
         endTime: '17:00',
         breakStart: '13:00',
@@ -25,15 +27,16 @@ const getAvailability = async (req, res) => {
   }
 };
 
-// @desc    إنشاء أو تحديث إعدادات التوافر
-// @route   POST /api/availability
-// @access  Private/Doctor
 const upsertAvailability = async (req, res) => {
   try {
-    const { workingDays, startTime, endTime, breakStart, breakEnd, slotDuration, maxPatientsPerDay } = req.body;
+    let { workingDays, startTime, endTime, breakStart, breakEnd, slotDuration, maxPatientsPerDay } = req.body;
+
+    if (workingDays && workingDays.length > 0 && typeof workingDays[0] === 'string') {
+      workingDays = workingDays.map(day => dayNameToNumber[day]);
+    }
+
     let availability = await Availability.findOne({ doctor: req.user.id });
     if (availability) {
-      // تحديث
       availability.workingDays = workingDays;
       availability.startTime = startTime;
       availability.endTime = endTime;
@@ -42,7 +45,6 @@ const upsertAvailability = async (req, res) => {
       availability.slotDuration = slotDuration;
       availability.maxPatientsPerDay = maxPatientsPerDay;
     } else {
-      // إنشاء جديد
       availability = new Availability({
         doctor: req.user.id,
         workingDays,
@@ -61,4 +63,21 @@ const upsertAvailability = async (req, res) => {
   }
 };
 
-module.exports = { getAvailability, upsertAvailability };
+// @desc    جلب توافر طبيب بواسطة ID (للمساعد)
+// @route   GET /api/availability/doctor/:doctorId
+// @access  Private
+const getDoctorAvailability = async (req, res) => {
+  try {
+    const { doctorId } = req.params;
+    const availability = await Availability.findOne({ doctor: doctorId });
+    if (!availability) {
+      return res.status(404).json({ message: 'Availability not set' });
+    }
+    res.json(availability);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// ✅ التصدير الصحيح ليشمل getDoctorAvailability
+module.exports = { getAvailability, upsertAvailability, getDoctorAvailability };

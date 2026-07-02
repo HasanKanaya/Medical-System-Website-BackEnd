@@ -1,25 +1,113 @@
 const Appointment = require('../models/Appointment');
 const User = require('../models/User');
 const Availability = require('../models/Availability');
+const Prescription = require('../models/Prescription');
+const { sendNotification } = require('../utils/sendNotification');
 
-// @desc    حجز موعد جديد
-// @route   POST /api/appointments
-// @access  Private (patient)
-const createAppointment = async (req, res) => {
+
+// ========== دوال مساعدة ==========
+// تحويل "YYYY-MM-DD" إلى رقم اليوم (0=الأحد، 6=السبت)
+function getDayNumberFromDateString(dateStr) {
+  const [year, month, day] = dateStr.split('-');
+  const date = new Date(Date.UTC(parseInt(year), parseInt(month)-1, parseInt(day)));
+  return date.getUTCDay();
+}
+
+function timeToUTCDate(dateStr, timeStr) {
+  const [year, month, day] = dateStr.split('-');
+  const [hours, minutes] = timeStr.split(':');
+  return new Date(Date.UTC(parseInt(year), parseInt(month)-1, parseInt(day), parseInt(hours), parseInt(minutes), 0));
+}
+
+function generateSlots(startTime, endTime, breakStart, breakEnd, slotDuration, dateStr) {
+  const slots = [];
+  let current = timeToUTCDate(dateStr, startTime);
+  const end = timeToUTCDate(dateStr, endTime);
+  const breakFrom = breakStart ? timeToUTCDate(dateStr, breakStart) : null;
+  const breakTo = breakEnd ? timeToUTCDate(dateStr, breakEnd) : null;
+
+  while (current < end) {
+    if (breakFrom && breakTo && current >= breakFrom && current < breakTo) {
+      current = new Date(breakTo);
+      continue;
+    }
+    const slotEnd = new Date(current.getTime() + slotDuration * 60000);
+    if (slotEnd > end) break;
+    const timeStr = `${current.toISOString().substr(11,5)} - ${slotEnd.toISOString().substr(11,5)}`;
+    slots.push(timeStr);
+    current = slotEnd;
+  }
+  return slots;
+}
+
+// ========== 1. جلب الأوقات المتاحة ==========
+exports.getAvailableSlots = async (req, res) => {
+  try {
+    const { doctorId } = req.params;
+    const { date } = req.query;
+    console.log('📅 Received date:', date);
+    if (!date) return res.status(400).json({ message: 'Date is required' });
+
+    const dayNumber = getDayNumberFromDateString(date);
+    console.log('📆 Day number:', dayNumber);
+
+    const availability = await Availability.findOne({ doctor: doctorId });
+    console.log('⚙️ Availability found:', availability);
+    if (!availability || !availability.isActive) {
+      return res.status(404).json({ message: 'Doctor availability not set' });
+    }
+
+    console.log('✅ Working days (numbers):', availability.workingDays);
+    if (!availability.workingDays.includes(dayNumber)) {
+      console.log('❌ Day not in working days');
+      return res.json([]);
+    }
+
+    const allSlots = generateSlots(
+      availability.startTime,
+      availability.endTime,
+      availability.breakStart,
+      availability.breakEnd,
+      availability.slotDuration,
+      date
+    );
+    console.log('⏰ Generated slots:', allSlots);
+
+    const booked = await Appointment.find({
+      doctor: doctorId,
+      dateString: date,
+      status: { $in: ['pending', 'confirmed'] },
+    }).select('timeSlot');
+    const bookedSlots = booked.map(b => b.timeSlot);
+    let availableSlots = allSlots.filter(slot => !bookedSlots.includes(slot));
+
+    const confirmedCount = await Appointment.countDocuments({
+      doctor: doctorId,
+      dateString: date,
+      status: { $in: ['pending', 'confirmed'] },
+    });
+    const remainingSlots = availability.maxPatientsPerDay - confirmedCount;
+    const finalSlots = availableSlots.slice(0, remainingSlots);
+    console.log('✨ Final slots:', finalSlots);
+    res.json(finalSlots);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// ========== 2. حجز موعد جديد ==========
+exports.createAppointment = async (req, res) => {
   try {
     const { doctorId, date, timeSlot, reason, type, notes } = req.body;
     const patientId = req.user.id;
 
-    // التأكد من أن الطبيب موجود ودوره doctor
     const doctor = await User.findOne({ _id: doctorId, role: 'doctor' });
-    if (!doctor) {
-      return res.status(404).json({ message: 'Doctor not found' });
-    }
+    if (!doctor) return res.status(404).json({ message: 'Doctor not found' });
 
-    // منع الحجز المزدوج (نفس الطبيب، نفس اليوم، نفس الفترة)
     const existing = await Appointment.findOne({
       doctor: doctorId,
-      date: new Date(date),
+      dateString: date,
       timeSlot,
       status: { $in: ['pending', 'confirmed'] },
     });
@@ -27,15 +115,23 @@ const createAppointment = async (req, res) => {
       return res.status(400).json({ message: 'This time slot is already booked' });
     }
 
+    const dateObj = new Date(date + 'T00:00:00.000Z');
     const appointment = await Appointment.create({
       patient: patientId,
       doctor: doctorId,
-      date,
+      date: dateObj,
+      dateString: date,
       timeSlot,
       reason,
       type,
       notes,
     });
+    
+    sendNotification(doctorId, {
+      message: `New appointment booked by ${req.user.fullName} on ${date} at ${timeSlot}`,
+      type: 'appointment_created',
+      relatedId: appointment._id,
+    }).catch(err => console.error('Notification error:', err));
 
     res.status(201).json(appointment);
   } catch (error) {
@@ -43,50 +139,40 @@ const createAppointment = async (req, res) => {
   }
 };
 
-// @desc    جلب مواعيد المريض الحالي
-// @route   GET /api/appointments/my-appointments
-const getMyAppointments = async (req, res) => {
+// ========== 3. جلب مواعيد المريض ==========
+exports.getMyAppointments = async (req, res) => {
   try {
     const appointments = await Appointment.find({ patient: req.user.id })
-      .populate('doctor', 'fullName email specialization doctorDetails')
-      .sort({ date: -1 });
+      .populate('doctor', 'fullName email doctorDetails specialization')
+      .sort({ dateString: -1, timeSlot: 1 });
     res.json(appointments);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
-// @desc    جلب مواعيد الطبيب (لمن هو طبيب)
-const getDoctorAppointments = async (req, res) => {
+// ========== 4. جلب مواعيد الطبيب ==========
+exports.getDoctorAppointments = async (req, res) => {
   try {
     const { start, end } = req.query;
     let filter = { doctor: req.user.id };
-    
     if (start && end) {
-      filter.date = {
-        $gte: new Date(start),
-        $lte: new Date(end)
-      };
+      filter.dateString = { $gte: start.split('T')[0], $lte: end.split('T')[0] };
     }
-    
     const appointments = await Appointment.find(filter)
       .populate('patient', 'fullName email phone')
-      .sort({ date: 1 });
-      
+      .sort({ dateString: 1, timeSlot: 1 });
     res.json(appointments);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
-// @desc    إلغاء موعد
-const cancelAppointment = async (req, res) => {
+// ========== 5. إلغاء موعد ==========
+exports.cancelAppointment = async (req, res) => {
   try {
     const appointment = await Appointment.findById(req.params.id);
-    if (!appointment) {
-      return res.status(404).json({ message: 'Appointment not found' });
-    }
-    // التحقق من الصلاحية: المريض نفسه أو الطبيب المعني
+    if (!appointment) return res.status(404).json({ message: 'Appointment not found' });
     if (appointment.patient.toString() !== req.user.id && appointment.doctor.toString() !== req.user.id) {
       return res.status(403).json({ message: 'Not authorized' });
     }
@@ -98,137 +184,202 @@ const cancelAppointment = async (req, res) => {
   }
 };
 
-
-// 
-// @desc    تحديث حالة الموعد (للطبيب)
-// @route   PUT /api/appointments/:id/status
-// @access  Private (doctor only)
-// تحويل "09:00" إلى كائن Date مع الحفاظ على التاريخ المحدد
-function timeToDate(date, timeStr) {
-  const [hours, minutes] = timeStr.split(':');
-  const d = new Date(date);
-  d.setHours(parseInt(hours), parseInt(minutes), 0, 0);
-  return d;
-}
-
-// توليد فترات الحجز بين start و end مع break
-function generateSlots(startTime, endTime, breakStart, breakEnd, slotDuration, appointmentDate) {
-  const slots = [];
-  let current = timeToDate(appointmentDate, startTime);
-  const end = timeToDate(appointmentDate, endTime);
-  const breakFrom = breakStart ? timeToDate(appointmentDate, breakStart) : null;
-  const breakTo = breakEnd ? timeToDate(appointmentDate, breakEnd) : null;
-
-  while (current < end) {
-    // تجاوز فترة الراحة
-    if (breakFrom && breakTo && current >= breakFrom && current < breakTo) {
-      current = new Date(breakTo);
-      continue;
-    }
-    const slotEnd = new Date(current.getTime() + slotDuration * 60000);
-    if (slotEnd > end) break;
-    const timeStr = `${current.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${slotEnd.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-    slots.push(timeStr);
-    current = slotEnd;
-  }
-  return slots;
-}
-// 
-
-const getAvailableSlots = async (req, res) => {
-  try {
-    const { doctorId } = req.params;
-    const { date } = req.query;
-    if (!date) {
-      return res.status(400).json({ message: 'Date is required' });
-    }
-
-    // جلب إعدادات التوافر للطبيب
-    const availability = await Availability.findOne({ doctor: doctorId });
-    if (!availability || !availability.isActive) {
-      return res.status(404).json({ message: 'Doctor availability not set' });
-    }
-
-    const selectedDate = new Date(date);
-    const dayOfWeek = selectedDate.getDay(); // 0 الأحد, 6 السبت
-
-    // هل اليوم ضمن أيام العمل؟
-    if (!availability.workingDays.includes(dayOfWeek)) {
-      return res.json([]); // لا أوقات متاحة في هذا اليوم
-    }
-
-    // توليد جميع الفترات الممكنة حسب الإعدادات
-    const allSlots = generateSlots(
-      availability.startTime,
-      availability.endTime,
-      availability.breakStart,
-      availability.breakEnd,
-      availability.slotDuration,
-      selectedDate
-    );
-
-    // جلب الفترات المحجوزة لهذا اليوم
-    const startDate = new Date(selectedDate);
-    startDate.setHours(0,0,0,0);
-    const endDate = new Date(selectedDate);
-    endDate.setHours(23,59,59,999);
-
-    const booked = await Appointment.find({
-      doctor: doctorId,
-      date: { $gte: startDate, $lt: endDate },
-      status: { $in: ['pending', 'confirmed'] },
-    }).select('timeSlot');
-
-    const bookedSlots = booked.map(b => b.timeSlot);
-    const availableSlots = allSlots.filter(slot => !bookedSlots.includes(slot));
-
-    // تطبيق حد أقصى للمرضى في اليوم
-    const confirmedCount = await Appointment.countDocuments({
-      doctor: doctorId,
-      date: { $gte: startDate, $lt: endDate },
-      status: { $in: ['confirmed', 'pending'] },
-    });
-    const remainingSlots = availability.maxPatientsPerDay - confirmedCount;
-    const finalSlots = availableSlots.slice(0, remainingSlots);
-
-    res.json(finalSlots);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-
-const updateAppointmentStatus = async (req, res) => {
+// ========== 6. تحديث حالة الموعد للطبيب ==========
+exports.updateAppointmentStatus = async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
-    const allowedStatus = ['pending', 'confirmed', 'cancelled', 'completed'];
-    if (!allowedStatus.includes(status)) {
-      return res.status(400).json({ message: 'Invalid status' });
-    }
-
-    const appointment = await Appointment.findById(id);
-    if (!appointment) {
-      return res.status(404).json({ message: 'Appointment not found' });
-    }
-    // تأكد أن الطبيب الحالي هو المعني
-    if (appointment.doctor.toString() !== req.user.id) {
-      return res.status(403).json({ message: 'Not authorized' });
-    }
-
+    const allowed = ['pending', 'confirmed', 'cancelled', 'completed'];
+    if (!allowed.includes(status)) return res.status(400).json({ message: 'Invalid status' });
+    
+    const appointment = await Appointment.findById(id).populate('patient', 'fullName');
+    if (!appointment) return res.status(404).json({ message: 'Appointment not found' });
+    if (appointment.doctor.toString() !== req.user.id) return res.status(403).json({ message: 'Not authorized' });
+    
     appointment.status = status;
     await appointment.save();
+
+    // إرسال إشعار للمريض (بعد حفظ الحالة)
+    const patientId = appointment.patient._id;
+    const doctorName = req.user.fullName;
+    const date = appointment.dateString;
+    const time = appointment.timeSlot;
+    
+    let message = '';
+    if (status === 'confirmed') {
+      message = `Your appointment with Dr. ${doctorName} on ${date} at ${time} has been confirmed.`;
+    } else if (status === 'cancelled') {
+      message = `Your appointment with Dr. ${doctorName} on ${date} at ${time} has been cancelled.`;
+    } else if (status === 'completed') {
+      message = `Your appointment with Dr. ${doctorName} on ${date} at ${time} has been marked as completed.`;
+    } else {
+      // pending or others - optional
+      message = `Your appointment with Dr. ${doctorName} on ${date} at ${time} is now ${status}.`;
+    }
+
+    sendNotification(patientId, {
+      message,
+      type: `appointment_${status}`,
+      relatedId: appointment._id,
+    }).catch(err => console.error('Notification error:', err));
+
     res.json(appointment);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
-module.exports = {
-  createAppointment,
-  getMyAppointments,
-  getDoctorAppointments,
-  cancelAppointment,
-  getAvailableSlots,
-  updateAppointmentStatus,
+
+// @desc    تعديل موعد (إعادة جدولة)
+// @route   PUT /api/appointments/:id/reschedule
+// @access  Private (patient only)
+exports.rescheduleAppointment = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { date, timeSlot } = req.body; // date بصيغة YYYY-MM-DD
+    const appointment = await Appointment.findById(id);
+    
+    if (!appointment) {
+      return res.status(404).json({ message: 'Appointment not found' });
+    }
+    
+    // التأكد أن المستخدم هو المريض صاحب الموعد
+    if (appointment.patient.toString() !== req.user.id) {
+      return res.status(403).json({ message: 'Not authorized' });
+    }
+    
+    // لا يمكن تعديل موعد ملغي أو مكتمل
+    if (appointment.status !== 'pending' && appointment.status !== 'confirmed') {
+      return res.status(400).json({ message: 'Cannot reschedule this appointment' });
+    }
+    
+    // التحقق من عدم تعارض الموعد الجديد (نفس الطبيب، نفس اليوم، نفس الفترة)
+    const existing = await Appointment.findOne({
+      doctor: appointment.doctor,
+      dateString: date,
+      timeSlot,
+      status: { $in: ['pending', 'confirmed'] },
+      _id: { $ne: id } // استثناء الموعد الحالي
+    });
+    
+    if (existing) {
+      return res.status(400).json({ message: 'This time slot is already booked' });
+    }
+    
+    // تحديث الموعد
+    appointment.dateString = date;
+    appointment.timeSlot = timeSlot;
+    appointment.date = new Date(date + 'T00:00:00.000Z');
+    await appointment.save();
+    
+    res.json({ message: 'Appointment rescheduled successfully', appointment });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    جلب موعد معين بواسطة ID
+// @route   GET /api/appointments/:id
+// @access  Private
+exports.getAppointmentById = async (req, res) => {
+  try {
+    const appointment = await Appointment.findById(req.params.id)
+      .populate('doctor', 'fullName email doctorDetails specialization');
+    if (!appointment) {
+      return res.status(404).json({ message: 'Appointment not found' });
+    }
+    res.json(appointment);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    إلغاء جميع مواعيد يوم معين للطبيب الحالي (حالة طارئة)
+// @route   POST /api/appointments/cancel-day
+// @access  Private (doctor only)
+exports.cancelFullDay = async (req, res) => {
+  try {
+    const { date } = req.body; // date بصيغة "YYYY-MM-DD"
+    const doctorId = req.user.id;
+
+    // جلب جميع المواعيد في ذلك اليوم والتي حالتها pending أو confirmed
+    const appointments = await Appointment.find({
+      doctor: doctorId,
+      dateString: date,
+      status: { $in: ['pending', 'confirmed'] },
+    }).populate('patient', 'fullName email');
+
+    if (appointments.length === 0) {
+      return res.status(404).json({ message: 'No appointments to cancel on this day' });
+    }
+
+    // تحديث حالة كل موعد
+    for (const app of appointments) {
+      app.status = 'cancelled_emergency';
+      await app.save();
+
+      // إرسال إشعار لكل مريض
+      await sendNotification(app.patient._id, {
+        message: `Emergency: Your appointment with Dr. ${req.user.fullName} on ${date} at ${app.timeSlot} has been cancelled. Please contact the clinic to reschedule.`,
+        type: 'appointment_cancelled',
+        relatedId: app._id,
+      });
+    }
+
+    // (اختياري) يمكن أيضاً تعطيل هذا اليوم في Availability مؤقتاً
+    // await Availability.findOneAndUpdate({ doctor: doctorId }, { $addToSet: { blockedDates: date } });
+
+    res.json({ message: `Successfully cancelled ${appointments.length} appointments`, count: appointments.length });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    إكمال الموعد مع وصفة طبية إجبارية
+// @route   POST /api/appointments/:id/complete
+// @access  Private (doctor only)
+exports.completeAppointmentWithPrescription = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { medications, instructions } = req.body;
+
+    // 1. جلب الموعد والتأكد من صلاحية الطبيب
+    const appointment = await Appointment.findById(id).populate('patient', 'fullName email');
+    if (!appointment) {
+      return res.status(404).json({ message: 'Appointment not found' });
+    }
+    if (appointment.doctor.toString() !== req.user.id) {
+      return res.status(403).json({ message: 'Not authorized' });
+    }
+    if (appointment.status === 'completed') {
+      return res.status(400).json({ message: 'Appointment already completed' });
+    }
+    if (!medications || medications.length === 0) {
+      return res.status(400).json({ message: 'At least one medication is required' });
+    }
+
+    // 2. إنشاء الوصفة الطبية
+    const prescription = await Prescription.create({
+      patient: appointment.patient._id,
+      doctor: req.user.id,
+      appointment: appointment._id,
+      medications,
+      instructions: instructions || '',
+    });
+
+    // 3. تحديث حالة الموعد إلى completed
+    appointment.status = 'completed';
+    await appointment.save();
+
+    // 4. إرسال إشعار للمريض
+    await sendNotification(appointment.patient._id, {
+      message: `Dr. ${req.user.fullName} has added a new prescription for your visit on ${appointment.dateString}. Please check your prescriptions.`,
+      type: 'prescription_added',
+      relatedId: prescription._id,
+    });
+
+    res.status(201).json({ message: 'Appointment completed with prescription', prescription, appointment });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 };

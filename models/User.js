@@ -19,7 +19,7 @@ const userSchema = new mongoose.Schema(
       type: String,
       unique: true,
       sparse: true,
-      default: null,
+      default: undefined,
     },
     password: {
       type: String,
@@ -55,6 +55,7 @@ const userSchema = new mongoose.Schema(
       specialization: { type: String },
       yearsOfExperience: { type: Number },
       documents: [{ type: String }],
+      recommendationCount: { type: Number, default: 0 },
       isVerified: { type: Boolean, default: false },
     },
     assignedDoctor: {
@@ -67,6 +68,8 @@ const userSchema = new mongoose.Schema(
 );
 
 // تشفير كلمة المرور قبل حفظ المستخدم
+
+
 userSchema.pre('save', async function () {
   if (!this.isModified('password')) return;
   const salt = await bcrypt.genSalt(10);

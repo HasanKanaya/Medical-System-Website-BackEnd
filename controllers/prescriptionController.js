@@ -14,6 +14,7 @@ exports.getMyPrescriptions = async (req, res) => {
   }
 };
 
+// ✅ التصحيح: إضافة exports.
 // @desc    جلب وصفة معينة (للمريض أو الطبيب)
 // @route   GET /api/prescriptions/:id
 // @access  Private
@@ -30,6 +31,21 @@ exports.getPrescriptionById = async (req, res) => {
       return res.status(403).json({ message: 'Not authorized' });
     }
     res.json(prescription);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    جلب وصفات مريض معين (للطبيب)
+// @route   GET /api/prescriptions/patient/:patientId
+// @access  Private
+exports.getPatientPrescriptions = async (req, res) => {
+  try {
+    const { patientId } = req.params;
+    const prescriptions = await Prescription.find({ patient: patientId })
+      .populate('doctor', 'fullName specialization')
+      .sort({ createdAt: -1 });
+    res.json(prescriptions);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

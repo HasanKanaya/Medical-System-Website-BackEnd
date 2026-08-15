@@ -1,47 +1,56 @@
-const express = require('express');
-const mongoose = require('mongoose');
-const dotenv = require('dotenv');
-const cors = require('cors');
-const http = require('http');
-const { Server } = require('socket.io');
-const authRoutes = require('./routes/authRoutes');
-const userRoutes = require('./routes/userRoutes');
-const appointmentRoutes = require('./routes/appointmentRoutes');
-const availabilityRoutes = require('./routes/availabilityRoutes');
-const adminRoutes = require('./routes/adminRoutes');
-const medicalRoutes = require('./routes/medicalRoutes');
-const assistantRoutes = require('./routes/assistantRoutes');
-const notificationRoutes = require('./routes/notificationRoutes');
-const { setIO } = require('./utils/sendNotification');
-const prescriptionRoutes = require('./routes/prescriptionRoutes');
-
-
+const express = require("express");
+const mongoose = require("mongoose");
+const dotenv = require("dotenv");
+const cors = require("cors");
+const http = require("http");
+const path = require('path');
+const { Server } = require("socket.io");
+const authRoutes = require("./routes/authRoutes");
+const userRoutes = require("./routes/userRoutes");
+const appointmentRoutes = require("./routes/appointmentRoutes");
+const availabilityRoutes = require("./routes/availabilityRoutes");
+const adminRoutes = require("./routes/adminRoutes");
+const medicalRoutes = require("./routes/medicalRoutes");
+const assistantRoutes = require("./routes/assistantRoutes");
+const notificationRoutes = require("./routes/notificationRoutes");
+const { setIO } = require("./utils/sendNotification");
+const prescriptionRoutes = require("./routes/prescriptionRoutes");
+const recommendationRoutes = require('./routes/recommendationRoutes');
 dotenv.config();
 
 const app = express();
 
 // Middlewares
 app.use(express.json());
-app.use(cors());
+app.use(
+  cors({
+    origin: "*",
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
+    allowedHeaders: ["Content-Type", "Authorization", "Cookie"],
+  }),
+);
 
 // Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api/appointments', appointmentRoutes);
-app.use('/api/availability', availabilityRoutes);
-app.use('/api/admin', adminRoutes);
-app.use('/api/medical', medicalRoutes);
-app.use('/api/assistant', assistantRoutes);
-app.use('/api/notifications', notificationRoutes);
-app.use('/api/prescriptions', prescriptionRoutes);
+app.use("/api/auth", authRoutes);
+app.use("/api/users", userRoutes);
+app.use("/api/appointments", appointmentRoutes);
+app.use("/api/availability", availabilityRoutes);
+app.use("/api/admin", adminRoutes);
+app.use("/api/medical", medicalRoutes);
+app.use("/api/assistant", assistantRoutes);
+app.use("/api/notifications", notificationRoutes);
+app.use("/api/prescriptions", prescriptionRoutes);
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/api/recommendations', recommendationRoutes);
 
 // الاتصال بقاعدة البيانات
 const connectDB = async () => {
   try {
-    await mongoose.connect(process.env.MONGO_URI);
-    console.log('✅ MongoDB connected successfully');
+    await mongoose.connect("mongodb://localhost:27017/MedicalAppServer"); //process.env.MONGO_URI
+    console.log("✅ MongoDB connected successfully");
   } catch (error) {
-    console.error('❌ MongoDB connection error:', error.message);
+    console.error("❌ MongoDB connection error:", error.message);
     process.exit(1);
   }
 };
@@ -51,18 +60,19 @@ connectDB();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: "http://localhost:5173",
-    methods: ["GET", "POST"]
-  }
+    origin: "*",
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
+    credentials: true,
+  },
 });
 
 // تخزين اتصالات المستخدمين
 const userSockets = new Map();
 
-io.on('connection', (socket) => {
-  console.log('🔌 New client connected:', socket.id);
+io.on("connection", (socket) => {
+  console.log("🔌 New client connected:", socket.id);
 
-  socket.on('register', (userId) => {
+  socket.on("register", (userId) => {
     if (userId) {
       userSockets.set(userId, socket.id);
       socket.join(`user_${userId}`);
@@ -70,7 +80,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('disconnect', () => {
+  socket.on("disconnect", () => {
     for (let [userId, sockId] of userSockets.entries()) {
       if (sockId === socket.id) {
         userSockets.delete(userId);
@@ -85,8 +95,9 @@ setIO(io);
 
 // تشغيل الخادم (بدلاً من app.listen)
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => {
+server.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`📍 Accessible at: http://0.0.0.0:${PORT}`);
 });
 
 module.exports = { io };

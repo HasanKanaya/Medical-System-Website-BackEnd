@@ -14,7 +14,7 @@ exports.register = async (req, res) => {
     // التحقق من البريد المكرر
     const existingUser = await User.findOne({ email });
     if (existingUser) {
-      return res.status(400).json({ message: 'Email already registered' });
+      return res.status(400).json({ message: 'البريد الإلكتروني مسجل بالفعل' });
     }
 
     // بناء كائن المستخدم بشكل ديناميكي

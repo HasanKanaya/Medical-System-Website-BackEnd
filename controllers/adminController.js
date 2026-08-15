@@ -6,7 +6,10 @@ const Appointment = require('../models/Appointment');
 // @access  Private/Admin
 const getUsers = async (req, res) => {
   try {
-    const users = await User.find({}).select('-password');
+    // ✅ إضافة populate لجلب بيانات الطبيب المعين
+    const users = await User.find({})
+      .select('-password')
+      .populate('assignedDoctor', 'fullName email');
     res.json(users);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -75,13 +78,22 @@ const getStats = async (req, res) => {
   }
 };
 
-// @desc    جلب قائمة الأطباء (للمسؤول)
+// ✅ @desc    جلب قائمة الأطباء مع التخصص
 // @route   GET /api/admin/doctors-list
 // @access  Private/Admin
 const getDoctorsList = async (req, res) => {
   try {
-    const doctors = await User.find({ role: 'doctor' }).select('_id fullName email');
-    res.json(doctors);
+    const doctors = await User.find({ role: 'doctor' })
+      .select('_id fullName email doctorDetails.specialization');
+
+    // تنسيق البيانات لإظهار التخصص
+    const formatted = doctors.map(doc => ({
+      _id: doc._id,
+      fullName: doc.fullName,
+      email: doc.email,
+      specialization: doc.doctorDetails?.specialization || 'General'
+    }));
+    res.json(formatted);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -110,4 +122,11 @@ const assignAssistantToDoctor = async (req, res) => {
   }
 };
 
-module.exports = { getUsers, updateUserStatus, verifyDoctor, getStats, getDoctorsList, assignAssistantToDoctor };
+module.exports = {
+  getUsers,
+  updateUserStatus,
+  verifyDoctor,
+  getStats,
+  getDoctorsList,
+  assignAssistantToDoctor,
+};

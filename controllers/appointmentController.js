@@ -41,6 +41,7 @@ function generateSlots(startTime, endTime, breakStart, breakEnd, slotDuration, d
 }
 
 // ========== 1. جلب الأوقات المتاحة ==========
+// ========== 1. جلب الأوقات المتاحة ==========
 exports.getAvailableSlots = async (req, res) => {
   try {
     const { doctorId } = req.params;
@@ -55,6 +56,12 @@ exports.getAvailableSlots = async (req, res) => {
     console.log('⚙️ Availability found:', availability);
     if (!availability || !availability.isActive) {
       return res.status(404).json({ message: 'Doctor availability not set' });
+    }
+
+    // ✅ التحقق من أن اليوم ليس في قائمة الأيام الملغاة
+    if (availability.blockedDates && availability.blockedDates.includes(date)) {
+      console.log('❌ This date is blocked by doctor (emergency cancellation)');
+      return res.json([]);
     }
 
     console.log('✅ Working days (numbers):', availability.workingDays);
@@ -73,13 +80,32 @@ exports.getAvailableSlots = async (req, res) => {
     );
     console.log('⏰ Generated slots:', allSlots);
 
+    // تصفية الفترات المنتهية في اليوم الحالي
+    const now = new Date();
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const todayStr = `${year}-${month}-${day}`;
+
+    let filteredSlots = allSlots;
+    if (date === todayStr) {
+      filteredSlots = allSlots.filter(slot => {
+        const startTime = slot.split(' - ')[0];
+        const [hours, minutes] = startTime.split(':').map(Number);
+        const slotMinutes = hours * 60 + minutes;
+        return slotMinutes > currentMinutes;
+      });
+      console.log('⏳ Filtered past slots for today:', filteredSlots);
+    }
+
     const booked = await Appointment.find({
       doctor: doctorId,
       dateString: date,
       status: { $in: ['pending', 'confirmed'] },
     }).select('timeSlot');
     const bookedSlots = booked.map(b => b.timeSlot);
-    let availableSlots = allSlots.filter(slot => !bookedSlots.includes(slot));
+    let availableSlots = filteredSlots.filter(slot => !bookedSlots.includes(slot));
 
     const confirmedCount = await Appointment.countDocuments({
       doctor: doctorId,
@@ -105,6 +131,25 @@ exports.createAppointment = async (req, res) => {
     const doctor = await User.findOne({ _id: doctorId, role: 'doctor' });
     if (!doctor) return res.status(404).json({ message: 'Doctor not found' });
 
+    // ✅ التحقق من عدد المواعيد المؤكدة/المعلقة في ذلك اليوم
+    const availability = await Availability.findOne({ doctor: doctorId });
+    if (!availability || !availability.isActive) {
+      return res.status(404).json({ message: 'Doctor availability not set' });
+    }
+
+    const confirmedCount = await Appointment.countDocuments({
+      doctor: doctorId,
+      dateString: date,
+      status: { $in: ['pending', 'confirmed'] },
+    });
+
+    if (confirmedCount >= availability.maxPatientsPerDay) {
+      return res.status(400).json({
+        message: `Doctor has reached the maximum number of patients (${availability.maxPatientsPerDay}) for this day.`
+      });
+    }
+
+    // التحقق من عدم تعارض الفترة
     const existing = await Appointment.findOne({
       doctor: doctorId,
       dateString: date,
@@ -126,7 +171,7 @@ exports.createAppointment = async (req, res) => {
       type,
       notes,
     });
-    
+
     sendNotification(doctorId, {
       message: `New appointment booked by ${req.user.fullName} on ${date} at ${timeSlot}`,
       type: 'appointment_created',
@@ -326,8 +371,11 @@ exports.cancelFullDay = async (req, res) => {
       });
     }
 
-    // (اختياري) يمكن أيضاً تعطيل هذا اليوم في Availability مؤقتاً
-    // await Availability.findOneAndUpdate({ doctor: doctorId }, { $addToSet: { blockedDates: date } });
+    // ✅ إضافة التاريخ إلى blockedDates في Availability (لمنع الحجوزات الجديدة)
+    await Availability.findOneAndUpdate(
+      { doctor: doctorId },
+      { $addToSet: { blockedDates: date } } // يضيف التاريخ إذا لم يكن موجوداً
+    );
 
     res.json({ message: `Successfully cancelled ${appointments.length} appointments`, count: appointments.length });
   } catch (error) {

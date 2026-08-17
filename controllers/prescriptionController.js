@@ -1,8 +1,5 @@
 const Prescription = require('../models/Prescription');
 
-// @desc    جلب جميع الوصفات الخاصة بالمريض الحالي
-// @route   GET /api/prescriptions/me
-// @access  Private
 exports.getMyPrescriptions = async (req, res) => {
   try {
     const prescriptions = await Prescription.find({ patient: req.user.id })
@@ -14,10 +11,6 @@ exports.getMyPrescriptions = async (req, res) => {
   }
 };
 
-// ✅ التصحيح: إضافة exports.
-// @desc    جلب وصفة معينة (للمريض أو الطبيب)
-// @route   GET /api/prescriptions/:id
-// @access  Private
 exports.getPrescriptionById = async (req, res) => {
   try {
     const prescription = await Prescription.findById(req.params.id)
@@ -26,7 +19,6 @@ exports.getPrescriptionById = async (req, res) => {
     if (!prescription) {
       return res.status(404).json({ message: 'Prescription not found' });
     }
-    // التحقق من الصلاحية: المريض نفسه أو الطبيب المعالج
     if (prescription.patient._id.toString() !== req.user.id && prescription.doctor._id.toString() !== req.user.id) {
       return res.status(403).json({ message: 'Not authorized' });
     }
@@ -36,9 +28,6 @@ exports.getPrescriptionById = async (req, res) => {
   }
 };
 
-// @desc    جلب وصفات مريض معين (للطبيب)
-// @route   GET /api/prescriptions/patient/:patientId
-// @access  Private
 exports.getPatientPrescriptions = async (req, res) => {
   try {
     const { patientId } = req.params;

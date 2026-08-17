@@ -1,12 +1,8 @@
 const User = require('../models/User');
 const Appointment = require('../models/Appointment');
 
-// @desc    جلب جميع المستخدمين (للمسؤول)
-// @route   GET /api/admin/users
-// @access  Private/Admin
 const getUsers = async (req, res) => {
   try {
-    // ✅ إضافة populate لجلب بيانات الطبيب المعين
     const users = await User.find({})
       .select('-password')
       .populate('assignedDoctor', 'fullName email');
@@ -16,9 +12,6 @@ const getUsers = async (req, res) => {
   }
 };
 
-// @desc    تحديث حالة المستخدم (تعليق/تفعيل)
-// @route   PUT /api/admin/users/:id
-// @access  Private/Admin
 const updateUserStatus = async (req, res) => {
   try {
     const { isActive } = req.body;
@@ -34,9 +27,6 @@ const updateUserStatus = async (req, res) => {
   }
 };
 
-// @desc    الموافقة على طبيب (تعيين isVerified = true)
-// @route   PUT /api/admin/doctors/:id/verify
-// @access  Private/Admin
 const verifyDoctor = async (req, res) => {
   try {
     const user = await User.findById(req.params.id);
@@ -51,9 +41,6 @@ const verifyDoctor = async (req, res) => {
   }
 };
 
-// @desc    جلب إحصائيات النظام (عدد المستخدمين، المواعيد، إلخ)
-// @route   GET /api/admin/stats
-// @access  Private/Admin
 const getStats = async (req, res) => {
   try {
     const totalUsers = await User.countDocuments();
@@ -78,15 +65,11 @@ const getStats = async (req, res) => {
   }
 };
 
-// ✅ @desc    جلب قائمة الأطباء مع التخصص
-// @route   GET /api/admin/doctors-list
-// @access  Private/Admin
 const getDoctorsList = async (req, res) => {
   try {
     const doctors = await User.find({ role: 'doctor' })
       .select('_id fullName email doctorDetails.specialization');
 
-    // تنسيق البيانات لإظهار التخصص
     const formatted = doctors.map(doc => ({
       _id: doc._id,
       fullName: doc.fullName,
@@ -99,9 +82,6 @@ const getDoctorsList = async (req, res) => {
   }
 };
 
-// @desc    تعيين مساعد لطبيب
-// @route   PUT /api/admin/assign-assistant/:assistantId
-// @access  Private/Admin
 const assignAssistantToDoctor = async (req, res) => {
   try {
     const { assistantId } = req.params;

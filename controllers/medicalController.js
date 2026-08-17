@@ -2,21 +2,14 @@ const MedicalProfile = require('../models/MedicalProfile');
 const VitalSign = require('../models/VitalSign');
 const User = require('../models/User');
 
-
-// ========== Medical Profile (بيانات ثابتة) ==========
-// @desc    جلب الملف الطبي للمريض (للمريض نفسه أو للطبيب المعالج)
-// @route   GET /api/medical/profile/:patientId
-// @access  Private (patient or doctor who treats this patient)
 exports.getMedicalProfile = async (req, res) => {
   try {
     const { patientId } = req.params;
-    // التحقق من الصلاحية: المريض نفسه أو طبيب (يمكننا لاحقاً التحقق من وجود علاقة)
     if (req.user.id !== patientId && req.user.role !== 'doctor' && req.user.role !== 'admin') {
       return res.status(403).json({ message: 'Not authorized' });
     }
     let profile = await MedicalProfile.findOne({ patient: patientId });
     if (!profile) {
-      // إنشاء ملف فارغ إذا لم يوجد
       profile = await MedicalProfile.create({ patient: patientId });
     }
     res.json(profile);
@@ -25,9 +18,6 @@ exports.getMedicalProfile = async (req, res) => {
   }
 };
 
-// @desc    تحديث الملف الطبي (للطبيب أو المريض? يفضل الطبيب فقط)
-// @route   PUT /api/medical/profile/:patientId
-// @access  Private (doctor only)
 exports.updateMedicalProfile = async (req, res) => {
   try {
     if (req.user.role !== 'doctor') {
@@ -51,10 +41,6 @@ exports.updateMedicalProfile = async (req, res) => {
   }
 };
 
-// ========== Vital Signs (قياسات دورية) ==========
-// @desc    إضافة قياس جديد
-// @route   POST /api/medical/vitals
-// @access  Private (doctor only)
 exports.addVitalSign = async (req, res) => {
   console.log('addVitalSign called with body:', req.body);
   try {
@@ -83,9 +69,6 @@ exports.addVitalSign = async (req, res) => {
   }
 };
 
-// @desc    جلب قياسات مريض (مع صلاحية: المريض نفسه أو طبيبه)
-// @route   GET /api/medical/vitals/:patientId
-// @access  Private (patient or doctor)
 exports.getVitalSigns = async (req, res) => {
   try {
     const { patientId } = req.params;
@@ -101,9 +84,6 @@ exports.getVitalSigns = async (req, res) => {
   }
 };
 
-// @desc    تحديث قياس معين (للطبيب)
-// @route   PUT /api/medical/vitals/:id
-// @access  Private (doctor only)
 exports.updateVitalSign = async (req, res) => {
   try {
     if (req.user.role !== 'doctor') {
@@ -111,7 +91,7 @@ exports.updateVitalSign = async (req, res) => {
     }
     const vital = await VitalSign.findById(req.params.id);
     if (!vital) return res.status(404).json({ message: 'Not found' });
-    // السماح بتحديث الحقول
+
     const updates = req.body;
     Object.assign(vital, updates);
     await vital.save();

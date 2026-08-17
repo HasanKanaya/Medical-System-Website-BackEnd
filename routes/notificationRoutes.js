@@ -5,7 +5,6 @@ const { protect } = require('../middleware/authMiddleware');
 const router = express.Router();
 router.use(protect);
 
-// جلب إشعارات المستخدم الحالي
 router.get('/', async (req, res) => {
   try {
     const notifications = await Notification.find({ user: req.user.id }).sort({ createdAt: -1 });
@@ -15,7 +14,6 @@ router.get('/', async (req, res) => {
   }
 });
 
-// تحديث إشعار كمقروء
 router.put('/:id/read', async (req, res) => {
   try {
     const notification = await Notification.findOne({ _id: req.params.id, user: req.user.id });

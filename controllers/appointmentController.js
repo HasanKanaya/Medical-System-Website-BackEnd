@@ -5,8 +5,6 @@ const Prescription = require('../models/Prescription');
 const { sendNotification } = require('../utils/sendNotification');
 
 
-// ========== دوال مساعدة ==========
-// تحويل "YYYY-MM-DD" إلى رقم اليوم (0=الأحد، 6=السبت)
 function getDayNumberFromDateString(dateStr) {
   const [year, month, day] = dateStr.split('-');
   const date = new Date(Date.UTC(parseInt(year), parseInt(month)-1, parseInt(day)));
@@ -40,8 +38,6 @@ function generateSlots(startTime, endTime, breakStart, breakEnd, slotDuration, d
   return slots;
 }
 
-// ========== 1. جلب الأوقات المتاحة ==========
-// ========== 1. جلب الأوقات المتاحة ==========
 exports.getAvailableSlots = async (req, res) => {
   try {
     const { doctorId } = req.params;
@@ -58,7 +54,6 @@ exports.getAvailableSlots = async (req, res) => {
       return res.status(404).json({ message: 'Doctor availability not set' });
     }
 
-    // ✅ التحقق من أن اليوم ليس في قائمة الأيام الملغاة
     if (availability.blockedDates && availability.blockedDates.includes(date)) {
       console.log('❌ This date is blocked by doctor (emergency cancellation)');
       return res.json([]);
@@ -80,7 +75,6 @@ exports.getAvailableSlots = async (req, res) => {
     );
     console.log('⏰ Generated slots:', allSlots);
 
-    // تصفية الفترات المنتهية في اليوم الحالي
     const now = new Date();
     const currentMinutes = now.getHours() * 60 + now.getMinutes();
     const year = now.getFullYear();
@@ -122,7 +116,6 @@ exports.getAvailableSlots = async (req, res) => {
   }
 };
 
-// ========== 2. حجز موعد جديد ==========
 exports.createAppointment = async (req, res) => {
   try {
     const { doctorId, date, timeSlot, reason, type, notes } = req.body;
@@ -131,7 +124,6 @@ exports.createAppointment = async (req, res) => {
     const doctor = await User.findOne({ _id: doctorId, role: 'doctor' });
     if (!doctor) return res.status(404).json({ message: 'Doctor not found' });
 
-    // ✅ التحقق من عدد المواعيد المؤكدة/المعلقة في ذلك اليوم
     const availability = await Availability.findOne({ doctor: doctorId });
     if (!availability || !availability.isActive) {
       return res.status(404).json({ message: 'Doctor availability not set' });
@@ -149,7 +141,6 @@ exports.createAppointment = async (req, res) => {
       });
     }
 
-    // التحقق من عدم تعارض الفترة
     const existing = await Appointment.findOne({
       doctor: doctorId,
       dateString: date,
@@ -184,7 +175,6 @@ exports.createAppointment = async (req, res) => {
   }
 };
 
-// ========== 3. جلب مواعيد المريض ==========
 exports.getMyAppointments = async (req, res) => {
   try {
     const appointments = await Appointment.find({ patient: req.user.id })
@@ -196,7 +186,6 @@ exports.getMyAppointments = async (req, res) => {
   }
 };
 
-// ========== 4. جلب مواعيد الطبيب ==========
 exports.getDoctorAppointments = async (req, res) => {
   try {
     const { start, end } = req.query;
@@ -213,7 +202,6 @@ exports.getDoctorAppointments = async (req, res) => {
   }
 };
 
-// ========== 5. إلغاء موعد ==========
 exports.cancelAppointment = async (req, res) => {
   try {
     const appointment = await Appointment.findById(req.params.id);
@@ -229,7 +217,6 @@ exports.cancelAppointment = async (req, res) => {
   }
 };
 
-// ========== 6. تحديث حالة الموعد للطبيب ==========
 exports.updateAppointmentStatus = async (req, res) => {
   try {
     const { id } = req.params;
@@ -244,7 +231,6 @@ exports.updateAppointmentStatus = async (req, res) => {
     appointment.status = status;
     await appointment.save();
 
-    // إرسال إشعار للمريض (بعد حفظ الحالة)
     const patientId = appointment.patient._id;
     const doctorName = req.user.fullName;
     const date = appointment.dateString;
@@ -258,7 +244,6 @@ exports.updateAppointmentStatus = async (req, res) => {
     } else if (status === 'completed') {
       message = `Your appointment with Dr. ${doctorName} on ${date} at ${time} has been marked as completed.`;
     } else {
-      // pending or others - optional
       message = `Your appointment with Dr. ${doctorName} on ${date} at ${time} is now ${status}.`;
     }
 
@@ -274,10 +259,6 @@ exports.updateAppointmentStatus = async (req, res) => {
   }
 };
 
-
-// @desc    تعديل موعد (إعادة جدولة)
-// @route   PUT /api/appointments/:id/reschedule
-// @access  Private (patient only)
 exports.rescheduleAppointment = async (req, res) => {
   try {
     const { id } = req.params;
@@ -288,30 +269,26 @@ exports.rescheduleAppointment = async (req, res) => {
       return res.status(404).json({ message: 'Appointment not found' });
     }
     
-    // التأكد أن المستخدم هو المريض صاحب الموعد
     if (appointment.patient.toString() !== req.user.id) {
       return res.status(403).json({ message: 'Not authorized' });
     }
     
-    // لا يمكن تعديل موعد ملغي أو مكتمل
     if (appointment.status !== 'pending' && appointment.status !== 'confirmed') {
       return res.status(400).json({ message: 'Cannot reschedule this appointment' });
     }
     
-    // التحقق من عدم تعارض الموعد الجديد (نفس الطبيب، نفس اليوم، نفس الفترة)
     const existing = await Appointment.findOne({
       doctor: appointment.doctor,
       dateString: date,
       timeSlot,
       status: { $in: ['pending', 'confirmed'] },
-      _id: { $ne: id } // استثناء الموعد الحالي
+      _id: { $ne: id } 
     });
     
     if (existing) {
       return res.status(400).json({ message: 'This time slot is already booked' });
     }
     
-    // تحديث الموعد
     appointment.dateString = date;
     appointment.timeSlot = timeSlot;
     appointment.date = new Date(date + 'T00:00:00.000Z');
@@ -323,9 +300,6 @@ exports.rescheduleAppointment = async (req, res) => {
   }
 };
 
-// @desc    جلب موعد معين بواسطة ID
-// @route   GET /api/appointments/:id
-// @access  Private
 exports.getAppointmentById = async (req, res) => {
   try {
     const appointment = await Appointment.findById(req.params.id)
@@ -339,15 +313,11 @@ exports.getAppointmentById = async (req, res) => {
   }
 };
 
-// @desc    إلغاء جميع مواعيد يوم معين للطبيب الحالي (حالة طارئة)
-// @route   POST /api/appointments/cancel-day
-// @access  Private (doctor only)
 exports.cancelFullDay = async (req, res) => {
   try {
-    const { date } = req.body; // date بصيغة "YYYY-MM-DD"
+    const { date } = req.body; 
     const doctorId = req.user.id;
 
-    // جلب جميع المواعيد في ذلك اليوم والتي حالتها pending أو confirmed
     const appointments = await Appointment.find({
       doctor: doctorId,
       dateString: date,
@@ -358,12 +328,10 @@ exports.cancelFullDay = async (req, res) => {
       return res.status(404).json({ message: 'No appointments to cancel on this day' });
     }
 
-    // تحديث حالة كل موعد
     for (const app of appointments) {
       app.status = 'cancelled_emergency';
       await app.save();
 
-      // إرسال إشعار لكل مريض
       await sendNotification(app.patient._id, {
         message: `Emergency: Your appointment with Dr. ${req.user.fullName} on ${date} at ${app.timeSlot} has been cancelled. Please contact the clinic to reschedule.`,
         type: 'appointment_cancelled',
@@ -371,10 +339,9 @@ exports.cancelFullDay = async (req, res) => {
       });
     }
 
-    // ✅ إضافة التاريخ إلى blockedDates في Availability (لمنع الحجوزات الجديدة)
     await Availability.findOneAndUpdate(
       { doctor: doctorId },
-      { $addToSet: { blockedDates: date } } // يضيف التاريخ إذا لم يكن موجوداً
+      { $addToSet: { blockedDates: date } } 
     );
 
     res.json({ message: `Successfully cancelled ${appointments.length} appointments`, count: appointments.length });
@@ -383,15 +350,11 @@ exports.cancelFullDay = async (req, res) => {
   }
 };
 
-// @desc    إكمال الموعد مع وصفة طبية إجبارية
-// @route   POST /api/appointments/:id/complete
-// @access  Private (doctor only)
 exports.completeAppointmentWithPrescription = async (req, res) => {
   try {
     const { id } = req.params;
     const { medications, instructions } = req.body;
 
-    // 1. جلب الموعد والتأكد من صلاحية الطبيب
     const appointment = await Appointment.findById(id).populate('patient', 'fullName email');
     if (!appointment) {
       return res.status(404).json({ message: 'Appointment not found' });
@@ -406,7 +369,6 @@ exports.completeAppointmentWithPrescription = async (req, res) => {
       return res.status(400).json({ message: 'At least one medication is required' });
     }
 
-    // 2. إنشاء الوصفة الطبية
     const prescription = await Prescription.create({
       patient: appointment.patient._id,
       doctor: req.user.id,
@@ -415,11 +377,9 @@ exports.completeAppointmentWithPrescription = async (req, res) => {
       instructions: instructions || '',
     });
 
-    // 3. تحديث حالة الموعد إلى completed
     appointment.status = 'completed';
     await appointment.save();
 
-    // 4. إرسال إشعار للمريض
     await sendNotification(appointment.patient._id, {
       message: `Dr. ${req.user.fullName} has added a new prescription for your visit on ${appointment.dateString}. Please check your prescriptions.`,
       type: 'prescription_added',

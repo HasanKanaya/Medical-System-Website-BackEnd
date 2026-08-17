@@ -1,4 +1,3 @@
-// middleware/upload.js
 const multer = require('multer');
 const path = require('path');
 
@@ -13,7 +12,6 @@ const storage = multer.diskStorage({
 });
 
 const fileFilter = (req, file, cb) => {
-  // السماح بملفات PDF, Word, صور...
   const allowedTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'image/jpeg', 'image/png'];
   if (allowedTypes.includes(file.mimetype)) {
     cb(null, true);
@@ -25,7 +23,7 @@ const fileFilter = (req, file, cb) => {
 const upload = multer({
   storage,
   fileFilter,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB حد أقصى
+  limits: { fileSize: 5 * 1024 * 1024 }, 
 });
 
 module.exports = upload;

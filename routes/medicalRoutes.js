@@ -10,14 +10,12 @@ const { protect, authorize } = require('../middleware/authMiddleware');
 
 const router = express.Router();
 
-router.use(protect); // جميع المسارات تتطلب تسجيل دخول
+router.use(protect); 
 
-// الملف الطبي الثابت
 router.route('/profile/:patientId')
   .get(getMedicalProfile)
   .put(authorize('doctor'), updateMedicalProfile);
 
-// القياسات الحيوية
 router.route('/vitals')
   .post(authorize('doctor'), addVitalSign);
 

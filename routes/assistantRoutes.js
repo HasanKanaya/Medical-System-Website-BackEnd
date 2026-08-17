@@ -6,7 +6,7 @@ const {
   rescheduleEmergencyAppointment,
   getAssignedDoctor,
   getAssignedDoctorAppointments,
-  cancelDayByAssistant, // ✅ استورد الدالة الجديدة
+  cancelDayByAssistant,
 } = require('../controllers/assistantController');
 const { protect, authorize } = require('../middleware/authMiddleware');
 
@@ -21,6 +21,6 @@ router.get('/cancelled-emergency', getCancelledEmergencyAppointments);
 router.post('/reschedule/:appointmentId', rescheduleEmergencyAppointment);
 router.get('/assigned-doctor', getAssignedDoctor);
 router.get('/appointments', getAssignedDoctorAppointments);
-router.post('/cancel-day', cancelDayByAssistant); // ✅ أضف هذا المسار
+router.post('/cancel-day', cancelDayByAssistant); 
 
 module.exports = router;

@@ -1,6 +1,5 @@
 const Availability = require('../models/Availability');
 
-// دالة مساعدة لتحويل اسم اليوم إلى رقم
 const dayNameToNumber = {
   Sunday: 0, Monday: 1, Tuesday: 2, Wednesday: 3,
   Thursday: 4, Friday: 5, Saturday: 6
@@ -63,9 +62,6 @@ const upsertAvailability = async (req, res) => {
   }
 };
 
-// @desc    جلب توافر طبيب بواسطة ID (للمساعد)
-// @route   GET /api/availability/doctor/:doctorId
-// @access  Private
 const getDoctorAvailability = async (req, res) => {
   try {
     const { doctorId } = req.params;
@@ -79,5 +75,4 @@ const getDoctorAvailability = async (req, res) => {
   }
 };
 
-// ✅ التصدير الصحيح ليشمل getDoctorAvailability
 module.exports = { getAvailability, upsertAvailability, getDoctorAvailability };

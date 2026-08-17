@@ -2,12 +2,9 @@ const User = require('../models/User');
 const Appointment = require('../models/Appointment');
 const VitalSign = require('../models/VitalSign');
 const MedicalProfile = require('../models/MedicalProfile');
-const Availability = require('../models/Availability'); // ✅ أضف هذا السطر
+const Availability = require('../models/Availability');
 const { sendNotification } = require('../utils/sendNotification');
 
-// @desc    جلب مرضى الطبيب المعين للمساعد
-// @route   GET /api/assistant/patients
-// @access  Private (assistant only)
 exports.getAssignedDoctorPatients = async (req, res) => {
   try {
     const assistant = await User.findById(req.user.id).populate('assignedDoctor', 'fullName');
@@ -29,9 +26,6 @@ exports.getAssignedDoctorPatients = async (req, res) => {
   }
 };
 
-// @desc    إضافة قياس حيوي لمريض (للمساعد مع التحقق من أن المريض يتبع الطبيب المعين)
-// @route   POST /api/assistant/vitals
-// @access  Private (assistant only)
 exports.addVitalSignByAssistant = async (req, res) => {
   try {
     const assistant = await User.findById(req.user.id);
@@ -61,9 +55,6 @@ exports.addVitalSignByAssistant = async (req, res) => {
   }
 };
 
-// @desc    جلب المواعيد الملغاة بسبب الطوارئ للطبيب المعين
-// @route   GET /api/assistant/cancelled-emergency
-// @access  Private (assistant only)
 exports.getCancelledEmergencyAppointments = async (req, res) => {
   try {
     const assistant = await User.findById(req.user.id);
@@ -81,9 +72,6 @@ exports.getCancelledEmergencyAppointments = async (req, res) => {
   }
 };
 
-// @desc    إعادة جدولة موعد ملغي (للمساعد)
-// @route   POST /api/assistant/reschedule/:appointmentId
-// @access  Private (assistant only)
 exports.rescheduleEmergencyAppointment = async (req, res) => {
   try {
     const { appointmentId } = req.params;
@@ -136,9 +124,7 @@ exports.rescheduleEmergencyAppointment = async (req, res) => {
   }
 };
 
-// @desc    جلب بيانات الطبيب المعين للمساعد
-// @route   GET /api/assistant/assigned-doctor
-// @access  Private (assistant only)
+
 exports.getAssignedDoctor = async (req, res) => {
   try {
     const assistant = await User.findById(req.user.id).populate('assignedDoctor', 'fullName email');
@@ -151,9 +137,6 @@ exports.getAssignedDoctor = async (req, res) => {
   }
 };
 
-// @desc    جلب مواعيد الطبيب المعين للمساعد
-// @route   GET /api/assistant/appointments
-// @access  Private (assistant only)
 exports.getAssignedDoctorAppointments = async (req, res) => {
   try {
     const assistant = await User.findById(req.user.id).populate('assignedDoctor');
@@ -175,21 +158,16 @@ exports.getAssignedDoctorAppointments = async (req, res) => {
   }
 };
 
-// @desc    إلغاء يوم كامل للطبيب المعين (للمساعد)
-// @route   POST /api/assistant/cancel-day
-// @access  Private (assistant only)
 exports.cancelDayByAssistant = async (req, res) => {
   try {
-    const { date } = req.body; // date بصيغة "YYYY-MM-DD"
+    const { date } = req.body; 
     
-    // 1. التحقق من أن المستخدم مساعد ولديه طبيب معين
     const assistant = await User.findById(req.user.id).populate('assignedDoctor', 'fullName');
     if (!assistant || assistant.role !== 'assistant' || !assistant.assignedDoctor) {
       return res.status(403).json({ message: 'No doctor assigned to you' });
     }
     const doctorId = assistant.assignedDoctor._id;
 
-    // 2. جلب جميع المواعيد في ذلك اليوم للطبيب المعين
     const appointments = await Appointment.find({
       doctor: doctorId,
       dateString: date,
@@ -200,12 +178,10 @@ exports.cancelDayByAssistant = async (req, res) => {
       return res.status(404).json({ message: 'No appointments to cancel on this day' });
     }
 
-    // 3. تحديث حالة كل موعد
     for (const app of appointments) {
       app.status = 'cancelled_emergency';
       await app.save();
 
-      // إرسال إشعار لكل مريض
       await sendNotification(app.patient._id, {
         message: `Emergency: Your appointment with Dr. ${assistant.assignedDoctor.fullName} on ${date} at ${app.timeSlot} has been cancelled. Please contact the clinic to reschedule.`,
         type: 'appointment_cancelled',
@@ -213,7 +189,6 @@ exports.cancelDayByAssistant = async (req, res) => {
       });
     }
 
-    // 4. إضافة التاريخ إلى blockedDates في Availability
     await Availability.findOneAndUpdate(
       { doctor: doctorId },
       { $addToSet: { blockedDates: date } }

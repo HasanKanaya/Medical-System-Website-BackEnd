@@ -6,9 +6,6 @@ const upload = require('../middleware/upload');
 const { uploadCV } = require('../controllers/userController');
 
 
-// رفع السيرة الذاتية (CV) للطبيب
-
-
 router.route('/profile').get(protect, getProfile).put(protect, updateProfile);
 router.get('/doctors', protect, getDoctors);
 router.get('/doctors/search', protect, searchDoctors);

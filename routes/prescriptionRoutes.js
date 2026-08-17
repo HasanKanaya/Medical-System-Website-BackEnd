@@ -6,9 +6,8 @@ const router = express.Router();
 
 router.use(protect);
 
-// ✅ ترتيب المسارات: الأكثر تحديداً أولاً
 router.get('/me', getMyPrescriptions);
-router.get('/patient/:patientId', getPatientPrescriptions); // وضعه قبل /:id لتجنب التعارض
+router.get('/patient/:patientId', getPatientPrescriptions); 
 router.get('/:id', getPrescriptionById);
 
 module.exports = router;

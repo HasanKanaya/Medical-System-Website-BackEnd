@@ -10,10 +10,8 @@ const router = express.Router();
 
 router.use(protect);
 
-// هذا المسار عام (للمساعد والأطباء)
 router.get('/doctor/:doctorId', getDoctorAvailability);
 
-// باقي المسارات تتطلب دور طبيب
 router.use(authorize('doctor'));
 
 router.route('/')

@@ -1,12 +1,10 @@
 const User = require('../models/User');
 const jwt = require('jsonwebtoken');
 
-// توليد توكن JWT
 const generateToken = (id, role) => {
   return jwt.sign({ id, role }, process.env.JWT_SECRET, { expiresIn: '30d' });
 };
 
-// تسجيل مستخدم جديد
 exports.register = async (req, res) => {
   try {
     const { fullName, email, phone, password, role, doctorDetails, gender } = req.body;
@@ -49,7 +47,6 @@ exports.register = async (req, res) => {
   }
 };
 
-// تسجيل الدخول
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
